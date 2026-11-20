@@ -107,3 +107,100 @@ git ls-remote --heads origin
 ```
 
 之后直接 `git push` / `git pull` 就会走新地址，无需再管。
+
+---
+
+## 三、从 main 切到 develope
+
+```powershell
+git switch develope
+```
+
+- 因为远端已有 `develope` 分支，直接 `git switch develope` 就会切过去。
+- 切换前建议保证工作区干净（`git status` 无未提交改动），否则改动会被带过去或报错。
+- 切完用 `git status --short --branch` 确认显示 `## develope...origin/develope`。
+
+### 本地没有该分支时（新克隆的机器）
+
+Git 2.23+ 会自动找到 `origin/develope` 并创建本地跟踪分支：
+
+```powershell
+git switch develope
+```
+
+更保险的写法：
+
+```powershell
+git switch -c develope origin/develope
+```
+
+`-c` 表示创建新分支，`origin/develope` 指定跟踪远端分支。
+
+### 其他常用切换
+
+| 命令 | 作用 |
+|------|------|
+| `git switch main` | 切回 main |
+| `git branch --show-current` | 查看当前分支 |
+| `git branch -a` | 查看全部分支 |
+
+---
+
+## 四、在 develope 分支 `git pull` 拉的是谁？
+
+**`git pull` 默认拉取当前分支跟踪的上游分支（upstream/tracking branch），不是 `main`。**
+
+- 在 `develope` 分支 `git pull` → 拉 `origin/develope`。
+- 在 `main` 分支 `git pull` → 拉 `origin/main`。
+
+`git pull` = `git fetch` + `git merge`（合并到当前分支），合并对象是当前分支配置的上游分支。
+
+### 查看当前分支跟踪哪个上游
+
+```powershell
+git status --short --branch
+# 显示 ## develope...origin/develope，`...` 后面的就是 pull 目标
+```
+
+或者：
+
+```powershell
+git branch -vv
+# develope 96f73a0 [origin/develope] ...
+# main     b735bfd [origin/main] ...
+```
+
+`[origin/xxx]` 里的就是该分支跟踪的远端。
+
+### 如何把 main 的改动同步到 develope
+
+不能靠裸 `git pull`，要主动合并 `main`：
+
+```powershell
+# 确保在 develope 分支
+git switch develope
+
+# 先拉取远端 main
+git fetch origin
+
+# 把 origin/main 合并进当前 develope 分支
+git merge origin/main
+```
+
+或更简洁的两步：
+
+```powershell
+git pull origin main
+```
+
+注意：`git pull origin main` 是**临时**拉取 `origin/main` 并合并到当前分支，**不会**改变 develope 的默认上游配置——以后裸 `git pull` 仍然拉 `origin/develope`。
+
+### 小结
+
+| 操作 | 拉取/合并的内容 |
+|------|----------------|
+| `git pull`（在 develope） | `origin/develope` |
+| `git pull`（在 main） | `origin/main` |
+| `git pull origin main`（在 develope） | 把 `origin/main` 合并进当前分支 |
+
+**想拉 main 的改动，用 `git pull origin main`（或 `git merge origin/main`）；只想同步 develope 自己，裸 `git pull` 就够了。**
