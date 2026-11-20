@@ -23,8 +23,8 @@ function P = params(mode)
     %% ===================== 射频参数（硬件生效） =====================
     P.centerFreq   = 2.4e9;
     P.basebandRate = 250e3;
-    P.txGain       = -30;                               % 发射衰减（先调大一点试试）
-    P.rxGain       = 60;                                % 接收增益 (30~40 比较安全)
+    P.txGain       = 0;                               % 发射衰减（先调大一点试试）
+    P.rxGain       = 45;                                % 接收增益 (30~40 比较安全)
     P.radioID_tx   = 'usb:0';
     P.radioID_rx   = 'usb:0';                           % 单机环回 usb:0；双机改为 'usb:1'
 
