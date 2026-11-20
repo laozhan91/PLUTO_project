@@ -39,6 +39,7 @@ for q = 1:4, bitBuffer{q} = []; end
 
 played_count = 0;
 iter = 0;
+lastSeq = uint8(0);            % 用于跨象限帧排序的基准序号
 
 audio_player('prime', P);     % 初始化抖动缓冲并预热声卡(一次性约 2.5s, 不占用实时循环)
 
@@ -58,6 +59,8 @@ try
         [rxBitsQuad, rxSym, metrics] = rx_chain(rxWave, P);
         
         % 3. 遍历 4 个象限解包
+        got = cell(32, 3);           % 本轮解出的帧 {payload, seq, q}, 先收集再按 seq 排序
+        gotCount = 0;                % 每轮最多 5 帧/象限 × 4 象限 = 20 帧, 32 行足够
         for q = 1:4
             % 拼接到对应的缓冲区
             bitBuffer{q} = [bitBuffer{q}, rxBitsQuad{q}(:).'];
@@ -81,10 +84,9 @@ try
                 
                 % 严格校验，发真包
                 if crcOK && numel(payloadBytes) == 160
-                    audio_player(payloadBytes, P, seqByte);   % 推入抖动缓冲(内部去重/补丢帧)
+                    gotCount = gotCount + 1;
+                    got(gotCount, :) = {payloadBytes, seqByte, q};
                     played_count = played_count + 1;
-                    fprintf('✅ 捕获真包！🔊 播放第 %d 帧 (象限: %d, seq: %s, 估算CFO: %.0fHz)\n', ...
-                        played_count, q, seq_str(seqByte), metrics.cfoEst);
                     
                     % 成功播放后，清空对应缓冲区之前的无效数据
                     consume = s + frameLen - 1;
@@ -96,6 +98,23 @@ try
                 
                 % 重新在剩余的 buffer 里找
                 frameStarts = frame_sync(bitBuffer{q}, P);
+            end
+        end
+        
+        % 四个象限相位在旋转时会先后解出相邻的帧, 直接按象限顺序推入会把
+        % 迟到帧误判为"旧帧"丢弃(加剧补帧)。这里按 seq 相对当前 lastSeq 的
+        % 前向距离排序后再推, 消除同轮乱序。
+        if gotCount > 0
+            got = got(1:gotCount, :);
+            seqs = cellfun(@(s) double(s), got(:,2));
+            dist = mod(seqs - double(lastSeq), 256);    % 相对 lastSeq 的前向距离
+            [~, ord] = sort(dist);
+            got = got(ord, :);
+            for i = 1:gotCount
+                audio_player(got{i,1}, P, got{i,2});
+                lastSeq = got{i,2};
+                fprintf('✅ 捕获真包！🔊 播放第 %d 帧 (象限: %d, seq: %s, 估算CFO: %.0fHz)\n', ...
+                    played_count, got{i,3}, seq_str(got{i,2}), metrics.cfoEst);
             end
         end
         

@@ -203,34 +203,62 @@ function tf = rx_hpf_on(P)
 end
 
 function y = concealSamples(nFrames, P, nSamples)
-% 保持上一好帧 + 逐帧淡出; nSamples 省略时取 nFrames 帧
+% 丢帧隐藏: 基音周期波形延拓 + 逐帧淡出
+%   旧实现"整帧重复上一帧 20ms"会产生 50Hz 的幅度调制 → 机器人声/电音。
+%   这里取上一好帧末尾的一个基音周期做循环延拓, 波形连续且基音对齐,
+%   听感接近自然延音, 不再有整帧边界造成的颤音。
     frameN = round(P.audioFs * P.audioFrameSec);
     if nargin < 3 || isempty(nSamples)
         nSamples = nFrames * frameN;
     end
+    y = zeros(nSamples, 1);
     if nSamples <= 0
-        y = zeros(0, 1);
         return;
+    end
+    if isempty(lastPcm)
+        return;                              % 无参考: 全静音
     end
     fade    = pv(P, 'playFadePerMiss', 0.7);
     maxHold = pv(P, 'playMaxHoldFrames', 8);
     gain    = pv(P, 'audioVolumeGain', 4);
 
-    y   = zeros(nSamples, 1);
-    pos = 1;
-    k   = 1;
-    while pos <= nSamples
-        if isempty(lastPcm) || k > maxHold
-            seg = zeros(frameN, 1);             % 无好帧可保持 / 隐藏过久 → 静音
-        else
-            seg = lastPcm / 32768 * (gain * fade^k);    % lastPcm 为 ±32768 量纲
-            seg = max(min(seg, 1), -1);
-        end
-        m = min(frameN, nSamples - pos + 1);
-        y(pos : pos+m-1) = seg(1:m);
-        pos = pos + m;
-        k   = k + 1;
+    T    = pitch_period(lastPcm, P.audioFs);        % 基音周期(样本)
+    idx  = mod((0:nSamples-1).', T) + 1;            % 循环延拓索引
+    tmpl = double(lastPcm(end-T+1:end));            % ±32768 量纲
+    seg  = tmpl(idx);                               % 连续波形(无帧边界跳变)
+
+    % 逐样本连续淡出: 避免逐帧台阶(每 20ms 跳 -3dB)造成的"呼吸"调制
+    env = fade .^ ((0:nSamples-1).' / frameN);
+    if ceil(nSamples / frameN) > maxHold
+        env(maxHold*frameN + 1 : end) = 0;          % 隐藏过久 → 静音
     end
+
+    y = seg .* env / 32768 * gain;
+    y = max(min(y, 1), -1);
+end
+
+function T = pitch_period(x, fs)
+% 自相关估计基音周期(约 100~350Hz @8kHz); 清音/噪声相关性弱则退回固定周期
+    x = double(x(:));
+    x = x - mean(x);
+    n = numel(x);
+    minLag = round(fs/350);                          % 350Hz 上限
+    maxLag = min(round(fs/100), floor(n/2));         % 100Hz 下限(受帧长限制)
+    if maxLag <= minLag || n < 2*minLag
+        T = round(fs/100);
+        return;
+    end
+    c = conv(x, x(end:-1:1));                        % c(n+lag) = sum x(m)*x(m+lag)
+    r = c(n : n+maxLag).';
+    r = r / max(r(1), 1e-12);
+    seg = r(minLag+1 : maxLag+1);
+    [pk, im] = max(seg);
+    if pk < 0.35                                    % 清音/噪声: 相关性弱
+        T = round(fs/100);
+    else
+        T = minLag + im - 1;
+    end
+    T = max(T, minLag);
 end
 
 function pushSamples(x)
