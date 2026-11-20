@@ -69,6 +69,9 @@ switch mode
         end
 
         pcm = double(alaw_to_pcm16(uint8(varargin{1}(:))));
+        if rx_hpf_on(P)
+            pcm = audio_proc_rx(pcm, P);    % 去直流 / 低频嗡声(状态跨帧保留)
+        end
 
         if ~isempty(seq)
             if ~isempty(lastSeq)
@@ -161,6 +164,9 @@ function doInit(P)
         end
         adw = [];
     end
+    if rx_hpf_on(P)
+        audio_proc_rx('reset', P);      % 高通状态清零, 避免上一轮遗留
+    end
     frameN = round(P.audioFs * P.audioFrameSec);
     cap    = max(round(P.audioFs * pv(P, 'playBufSec', 0.5)), ...
                  pv(P, 'playTargetFrames', 2) * frameN);
@@ -188,6 +194,10 @@ function v = pv(P, name, dflt)
     else
         v = dflt;
     end
+end
+
+function tf = rx_hpf_on(P)
+    tf = isfield(P, 'enableRxHPF') && ~isempty(P.enableRxHPF) && logical(P.enableRxHPF);
 end
 
 function y = applyGain(x, P)

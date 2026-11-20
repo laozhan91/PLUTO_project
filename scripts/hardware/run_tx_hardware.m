@@ -7,6 +7,7 @@ P.txGain = 0;
 P.audioFs = 8000;
 P.enableFEC = true;         % RS 整帧协议; ⚠️ 必须与接收端 run_rx_hardware.m 一致
 frame_builder('reset');     % 复位帧序号计数器, 每次开始发射都从 0 开始
+audio_proc_tx('reset', P);  % 复位前处理状态(高通/噪声门/AGC)
 
 % 1. 初始化硬件
 fprintf('正在初始化 Pluto...\n');
@@ -45,7 +46,11 @@ while ishandle(fig)
     nextBits = [];
     for k = 1:(CHUNK_N/frameN)
         f_pcm = chunk_dbl((k-1)*frameN+1 : k*frameN);
-        b = frame_builder(int16(f_pcm * 32767), P);
+        pcm = int16(f_pcm * 32767);
+        if P.enableAudioProc
+            pcm = audio_proc_tx(pcm, P);    % 高通 + 噪声门 + 慢速 AGC
+        end
+        b = frame_builder(pcm, P);
         b = b(:);
         if mod(numel(b), P.bps)~=0
             b = [b; false(P.bps-mod(numel(b),P.bps),1)];

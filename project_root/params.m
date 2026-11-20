@@ -75,6 +75,28 @@ function P = params(mode)
     P.playFadePerMiss   = 0.7;   % 丢帧隐藏: 每多丢一帧的衰减系数
     P.playMaxHoldFrames = 8;     % 连续隐藏超过该帧数则静音, 防止嗡嗡声
 
+    %% ===================== app/ 层音频前/后处理(步骤 D) =====================
+    % 发射端: 高通 → 自动噪声门 → 慢速 AGC → 峰值限幅
+    % 接收端: 高通(底噪已在发射端处理, 收端不再加门/谱减, 避免伤语音)
+    % ⚠️ 发射端前 25 帧(0.5s)直通用于估计底噪, 开机后请保持安静约 0.5s
+    P.enableAudioProc     = true;   % 发射端前处理总开关
+    P.enableRxHPF         = true;   % 接收端高通开关
+    P.procHpHz            = 90;     % 高通截止(4 阶 Butterworth): 50Hz 约 -20dB, 100Hz 约 -1.5dB
+    P.procNoiseWarmFrames = 25;     % 底噪估计的预热帧数(0.5s, 期间直通)
+    P.procNoiseInitMaxDb  = -45;    % 底噪初值上限(防止预热期在讲话时把门限抬到语音电平)
+    P.procNoiseRiseDb     = 6;      % 底噪估计相对初值最多再升多少 dB
+    P.procGateOpenDb      = 9;      % 高于底噪 9dB → 门全开
+    P.procGateCloseDb     = 4;      % 高于底噪 4dB 以下 → 门关闭
+    P.procGateFloorDb     = -26;    % 门关闭时的衰减量
+    P.procGateBlkMs       = 5;      % 门的电平判决块长(块 RMS, 与门限同量纲)
+    P.procGateAttMs       = 5;      % 开门时间常数(快, 不吃字头)
+    P.procGateRelMs       = 120;    % 关门时间常数(慢, 不吃字尾)
+    P.procAgcTargetDb     = -18;    % AGC 目标电平(dBFS)
+    P.procAgcAtkMs        = 150;    % 过响时压低的时间常数
+    P.procAgcRelMs        = 1200;   % 过轻时提起的时间常数
+    P.procAgcMinDb        = -20;    % AGC 增益下限(避免把底噪提上来)
+    P.procAgcMaxDb        = 26;     % AGC 增益上限
+
     %% ===================== 量化验收门限 =====================
     P.thresholds.isi_dB          = -25;
     P.thresholds.evm_pct         = 15;
