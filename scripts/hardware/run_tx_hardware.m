@@ -5,6 +5,8 @@ P = params('overair');
 P.basebandRate = 250e3;
 P.txGain = 0;
 P.audioFs = 8000;
+P.enableFEC = true;         % RS 整帧协议; ⚠️ 必须与接收端 run_rx_hardware.m 一致
+frame_builder('reset');     % 复位帧序号计数器, 每次开始发射都从 0 开始
 
 % 1. 初始化硬件
 fprintf('正在初始化 Pluto...\n');

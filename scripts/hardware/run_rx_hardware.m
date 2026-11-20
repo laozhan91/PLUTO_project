@@ -5,9 +5,11 @@ warning('off', 'comm:SymbolSynchronizer:SymbolDropping');
 
 P = params('overair');
 P.basebandRate    = 250e3;  
-% 🚨 修复 1：必须抓足够多的点，一帧需要 2656 点，8192 点能装下 3 帧！
+% 一帧 1328 bit(无 FEC) / 2072 bit(RS 整帧) = 2656 / 4144 采样点, 8192 点可覆盖 1.9~3 帧
 P.rxFrameLength   = 8192;    
-P.rxGain          = 60;     
+P.rxGain          = 25;     
+P.enableFEC       = true;   % RS 整帧协议; ⚠️ 必须与发射端 run_tx_hardware.m 一致
+P.audioVolumeGain = 3;      % 与改造前 sound(...*3) 的音量保持一致
 
 % 🚨 修复 2：如果之前没跑过 calibrate_pluto_freq.m，P.rxPPMCorrection 默认是 0
 if ~isfield(P, 'rxPPMCorrection')
@@ -34,8 +36,10 @@ for q = 1:4, bitBuffer{q} = []; end
 played_count = 0;
 iter = 0;
 
+audio_player('prime', P);     % 初始化抖动缓冲并预热声卡(一次性约 2.5s, 不占用实时循环)
+
 fprintf('=== RX 硬件启动！等待接收真实信号... ===\n');
-fprintf('当前 PPM 校准值: %.3f\n', P.rxPPMCorrection);
+fprintf('当前 PPM 校准值: %.3f | FEC: %d\n', P.rxPPMCorrection, P.enableFEC);
 
 try
     while true
@@ -67,17 +71,16 @@ try
             while ~isempty(frameStarts) && parse_limit > 0
                 parse_limit = parse_limit - 1;
                 s = frameStarts(1);
-                [payloadBytes, crcOK, frameLen] = frame_parser(bitBuffer{q}, s, P);
+                [payloadBytes, crcOK, frameLen, seqByte] = frame_parser(bitBuffer{q}, s, P);
                 
                 if frameLen == 0, break; end
                 
                 % 严格校验，发真包
                 if crcOK && numel(payloadBytes) == 160
-                    pcm = alaw_to_pcm16(payloadBytes);
-                    sound(double(pcm)/32768 * 3, P.audioFs);
+                    audio_player(payloadBytes, P, seqByte);   % 推入抖动缓冲(内部去重/补丢帧)
                     played_count = played_count + 1;
-                    fprintf('✅ 捕获真包！🔊 播放第 %d 帧 (象限: %d, 估算CFO: %.0fHz)\n', ...
-                        played_count, q, metrics.cfoEst);
+                    fprintf('✅ 捕获真包！🔊 播放第 %d 帧 (象限: %d, seq: %s, 估算CFO: %.0fHz)\n', ...
+                        played_count, q, seq_str(seqByte), metrics.cfoEst);
                     
                     % 成功播放后，清空对应缓冲区之前的无效数据
                     consume = s + frameLen - 1;
@@ -92,12 +95,27 @@ try
             end
         end
         
+        % 墙钟驱动播放: 按流逝时间把应有样本写进声卡(无新帧时自动隐藏)
+        audio_player('tick', P);
+
         % 打印一下射频最大值，监控天线状态
         if mod(iter, 100) == 0
-            fprintf('监控: max(|rxWave|) = %.3f\n', max(abs(rxWave)));
+            ps = audio_player('stats');
+            fprintf('监控: max(|rxWave|) = %.3f | 好帧 %d 重复 %d 补帧 %d 下溢 %d 缓冲 %d 点\n', ...
+                max(abs(rxWave)), ps.good, ps.dup, ps.gap, ps.under, ps.queued);
         end
     end
 catch ME
     fprintf('\n接收结束: %s\n', ME.message);
 end
+audio_player('release');
 release(rxRadio);
+%% 局部函数
+function s = seq_str(seqByte)
+% 帧序号转字符串(无 FEC 格式没有序号)
+if isempty(seqByte)
+    s = '--';
+else
+    s = sprintf('%d', double(seqByte));
+end
+end
