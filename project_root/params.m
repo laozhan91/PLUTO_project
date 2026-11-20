@@ -90,12 +90,13 @@ function P = params(mode)
     P.procGateFloorDb     = -26;    % 门关闭时的衰减量
     P.procGateBlkMs       = 5;      % 门的电平判决块长(块 RMS, 与门限同量纲)
     P.procGateAttMs       = 5;      % 开门时间常数(快, 不吃字头)
-    P.procGateRelMs       = 120;    % 关门时间常数(慢, 不吃字尾)
+    P.procGateRelMs       = 80;    % 关门时间常数(慢, 不吃字尾)
     P.procAgcTargetDb     = -18;    % AGC 目标电平(dBFS)
     P.procAgcAtkMs        = 150;    % 过响时压低的时间常数
     P.procAgcRelMs        = 1200;   % 过轻时提起的时间常数
     P.procAgcMinDb        = -20;    % AGC 增益下限(避免把底噪提上来)
     P.procAgcMaxDb        = 26;     % AGC 增益上限
+    P.procAgcPeakCeilDb   = -3;     % 输出峰值上限(dBFS); 防止滤波抬高峰值因数后收端削顶
 
     %% ===================== 量化验收门限 =====================
     P.thresholds.isi_dB          = -25;

@@ -137,7 +137,18 @@ if openRatio > 0.3                    % 该帧大部分是语音才调整增益
     agcDb = min(max(agcDb, pv(P, 'procAgcMinDb', -20)), pv(P, 'procAgcMaxDb', 26));
 end
 
-gRamp = linspace(prevAgcDb, agcDb, N).';
+% 峰值天花板: AGC 只按 RMS 归一, 而滤波会改变相位、把峰值因数抬高
+% (实测 12 次谐波信号过一级高通后峰值 +4.1dB, RMS 几乎不变)。
+% 这里按本帧峰值算出允许的最大增益, 并对增益斜坡的两个端点都做夹取,
+% 保证整帧输出峰值不超过 procAgcPeakCeilDb;
+% 否则收端回放时峰值会被推出 ±1 → 硬削顶, 听感像加了失真效果器。
+ceilDb = pv(P, 'procAgcPeakCeilDb', -3);
+peakDb = 20*log10(max(abs(yg)) / 32768 + 1e-12);
+gHi    = ceilDb - peakDb;                 % 本帧允许的最大增益
+agcDb  = min(agcDb, gHi);
+
+g0    = min(prevAgcDb, gHi);              % 斜坡起点也要受限, 否则帧首会超
+gRamp = linspace(g0, agcDb, N).';
 ya    = yg .* (10.^(gRamp/20));
 
 %% ---- 5) 峰值限幅(安全网) ----

@@ -6,7 +6,7 @@ function n = audio_player(varargin)
 %   audio_player('prime', P)             init + 预热声卡(实时循环前调用, 吃掉启动开销)
 %   audio_player(payloadBytes, P, seq)   推入一帧 A-law 字节; seq(uint8) 可省略
 %   n = audio_player('tick', P)          按流逝时间向声卡写入样本, 返回写入点数
-%   s = audio_player('stats')            返回统计 struct(good/dup/gap/under/queued)
+%   s = audio_player('stats')            返回统计 struct(good/dup/gap/under/queued/clip)
 %   y = audio_player('pull', P, m)       从缓冲取出 m 点返回(不写声卡, 供离线自检)
 %   audio_player('release')              释放声卡设备
 %
@@ -23,7 +23,7 @@ function n = audio_player(varargin)
 % 退出清缓存: clear audio_player
 
 persistent adw adwFs buf cap rd cnt lastPcm lastSeq t0 written
-persistent nGood nDup nGap nUnder
+persistent nGood nDup nGap nUnder nClip
 
 n = 0;
 if nargin < 1
@@ -93,7 +93,9 @@ switch mode
         end
 
         lastPcm = pcm;
-        pushSamples(applyGain(pcm, P));
+        raw  = pcm / 32768 * pv(P, 'audioVolumeGain', 4);
+        nClip = nClip + sum(abs(raw) >= 1);      % 削顶计数: 有此计数说明回放增益过大
+        pushSamples(max(min(raw, 1), -1));
         nGood = nGood + 1;
 
     case 'tick'
@@ -136,7 +138,7 @@ switch mode
             doInit(struct('audioFs', 8000, 'audioFrameSec', 0.02));
         end
         n = struct('good', nGood, 'dup', nDup, 'gap', nGap, ...
-                   'under', nUnder, 'queued', cnt);
+                   'under', nUnder, 'queued', cnt, 'clip', nClip);
 
     case 'release'
         if ~isempty(adw)
@@ -175,7 +177,7 @@ function doInit(P)
     cnt     = 0;
     lastPcm = [];
     lastSeq = [];
-    nGood = 0;  nDup = 0;  nGap = 0;  nUnder = 0;
+    nGood = 0;  nDup = 0;  nGap = 0;  nUnder = 0;  nClip = 0;
 
     % 提前创建设备: 首次打开约需 1s, 放在 init 里付掉, 不要落在实时循环中。
     % 打不开(无声卡环境)就退回懒创建, 不影响 push/stats 逻辑。
@@ -198,12 +200,6 @@ end
 
 function tf = rx_hpf_on(P)
     tf = isfield(P, 'enableRxHPF') && ~isempty(P.enableRxHPF) && logical(P.enableRxHPF);
-end
-
-function y = applyGain(x, P)
-% x 为 A-law 解码后的 PCM, 量纲 ±32768; 声卡输入要求 ±1
-    y = x / 32768 * pv(P, 'audioVolumeGain', 4);
-    y = max(min(y, 1), -1);
 end
 
 function y = concealSamples(nFrames, P, nSamples)

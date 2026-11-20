@@ -108,6 +108,21 @@ yr = audio_proc_rx(sr, P);
 check(rms16(yr(end-5*N:end)) > 0.95*rms16(round(sr(end-5*N:end))), ...
     '接收端高通不削 300Hz');
 
+%% 8) 峰值天花板: 高峰值因数信号也不能逼近满量程
+% 滤波会改变相位、把峰值因数抬高(实测 +4dB), 若 AGC 只按 RMS 归一,
+% 峰值会被推到满量程, 收端一乘增益就硬削顶(听感像失真效果器)
+audio_proc_tx('reset', P);
+tt8 = (0:N*nF-1).'/P.audioFs;
+vc  = zeros(N*nF,1);
+for k = 1:12
+    vc = vc + (1/k)*sin(2*pi*130*k*tt8 + 0.7*k);
+end
+vc = vc / max(abs(vc)) * 20000;
+y  = run_tx(vc, P, N);
+peakDb = 20*log10(max(abs(double(y(N*nWarm+1:end))))/32768);
+check(peakDb <= P.procAgcPeakCeilDb + 0.2, ...
+    sprintf('高峰值因数信号输出峰值受限(%.2f dBFS, 天花板 %d)', peakDb, P.procAgcPeakCeilDb));
+
 audio_proc_tx('reset', P);
 audio_proc_rx('reset', P);
 fprintf('=== 全部通过 ===\n');

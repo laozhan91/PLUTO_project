@@ -9,7 +9,11 @@ P.basebandRate    = 250e3;
 P.rxFrameLength   = 8192;    
 P.rxGain          = 25;     
 P.enableFEC       = true;   % RS 整帧协议; ⚠️ 必须与发射端 run_tx_hardware.m 一致
-P.audioVolumeGain = 3;      % 与改造前 sound(...*3) 的音量保持一致
+P.enableRxHPF     = true;   % 接收端高通
+P.audioVolumeGain = 1;      % 发射端已有 AGC 把语音归一到 -18dBFS, 这里不要再乘 3:
+                            % 语音峰值因数约 12~16dB, 乘 3 会把峰值推出 ±1 → 削顶,
+                            % 听感像加了失真效果器(实测 1.2% 样本削顶, 峰值 1.79)
+                            % 若关闭 P.enableAudioProc, 把这里改回 3
 
 % 🚨 修复 2：如果之前没跑过 calibrate_pluto_freq.m，P.rxPPMCorrection 默认是 0
 if ~isfield(P, 'rxPPMCorrection')
@@ -101,8 +105,8 @@ try
         % 打印一下射频最大值，监控天线状态
         if mod(iter, 100) == 0
             ps = audio_player('stats');
-            fprintf('监控: max(|rxWave|) = %.3f | 好帧 %d 重复 %d 补帧 %d 下溢 %d 缓冲 %d 点\n', ...
-                max(abs(rxWave)), ps.good, ps.dup, ps.gap, ps.under, ps.queued);
+            fprintf('监控: max(|rxWave|) = %.3f | 好帧 %d 重复 %d 补帧 %d 下溢 %d 削顶 %d 缓冲 %d 点\n', ...
+                max(abs(rxWave)), ps.good, ps.dup, ps.gap, ps.under, ps.clip, ps.queued);
         end
     end
 catch ME

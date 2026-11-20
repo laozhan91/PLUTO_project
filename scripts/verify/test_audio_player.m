@@ -66,6 +66,29 @@ audio_player(pcm16_to_alaw(loud), P, uint8(8));
 y = audio_player('pull', P, frameN);
 check(max(abs(y)) <= 1 + 1e-9, '大信号被限幅在 ±1 之内');
 
+%% 语音峰值因数 + 回放增益 -> 必须能被"削顶计数"发现
+% 合成高峰值因数信号(峰值 ~20000, RMS ~3000, 峰值因数约 16dB), 模拟 AGC 归一后的语音
+tt = (0:frameN-1).'/P.audioFs;
+vc = zeros(frameN,1);
+for k = 1:12
+    vc = vc + (1/k)*sin(2*pi*130*k*tt + 0.7*k);
+end
+vc = int16(round(vc / max(abs(vc)) * 20000));
+
+P.audioVolumeGain = 3;                       % 过大的增益
+audio_player('init', P);
+audio_player(pcm16_to_alaw(vc), P, uint8(9));
+s = audio_player('stats');
+check(s.clip > 0, sprintf('增益过大时统计到削顶(%d 样本)', s.clip));
+
+P.audioVolumeGain = 1;                       % 推荐值
+audio_player('init', P);
+audio_player(pcm16_to_alaw(vc), P, uint8(10));
+s = audio_player('stats');
+y = audio_player('pull', P, frameN);
+check(s.clip == 0 && max(abs(y)) < 1, ...
+    sprintf('推荐增益 1 下不削顶(峰值 %.2f)', max(abs(y))));
+
 audio_player('release');
 fprintf('=== 全部通过 ===\n');
 end
